@@ -27,6 +27,7 @@ export default function useIntersectionObserver<T extends HTMLElement>({
       },
       {
         threshold,
+        rootMargin: "50px 0px",
       },
     );
 
