@@ -39,7 +39,14 @@ export type ServiceContents = {
 
 export type FilterValue = {
   filter: "type" | "max_pax" | "property";
-  value: number;
+  value: string;
 };
 
-export type SortingType = "price" | "name" | "size" | "discount" | "bedrooms";
+export type SortingValue = {
+  sort: "price" | "name" | "size" | "discount" | "bedrooms" | null;
+  dir: "asc" | "desc";
+};
+
+export type Status = "idle" | "loading" | "failure" | "success";
+
+export type Reject = "ABORT" | "DOWN" | "SYSTEM";

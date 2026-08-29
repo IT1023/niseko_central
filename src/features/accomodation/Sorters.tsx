@@ -1,16 +1,14 @@
 import { Box, styled } from "@mui/material";
-import type { SortingType } from "../../utils/Types";
 import { useTranslation } from "react-i18next";
-import { useEffect, useState } from "react";
-import { sortBookings } from "./bookingsSlice";
+import { useState } from "react";
 import UnfoldMoreIcon from "@mui/icons-material/UnfoldMore";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import { useDispatch, useSelector } from "react-redux";
-import type { AppDispatch, RootState } from "../../app/store";
+import { useSearchParams } from "react-router-dom";
+import type { SortingValue } from "../../utils/Types";
 
 type TSort = {
-  sort_key: SortingType;
+  sort_key: Exclude<SortingValue["sort"], null>;
   sort_value: string;
 };
 
@@ -40,19 +38,19 @@ const Sorter = styled(Box, {
 }));
 
 export default function Sorters() {
+  const [params, setParams] = useSearchParams();
   const { t } = useTranslation();
   const [isActive, setIsActive] = useState<number | null>(null);
-  const { type, max_pax, property } = useSelector(
-    (state: RootState) => state.bookings.filters,
-  );
-  const { previous_sort, sort_order } = useSelector(
-    (state: RootState) => state.bookings,
-  );
-  const dispatch = useDispatch<AppDispatch>();
 
-  useEffect(() => {
-    setIsActive(null);
-  }, [type, max_pax, property]);
+  const activeSort = params.get("sortBy");
+
+  const setParamsVal = (sort: SortingValue["sort"], dir: "desc" | "asc") => {
+    setParams((params) => {
+      params.set("sortBy", sort ?? "");
+      params.set("sortDir", dir);
+      return params;
+    });
+  };
 
   return (
     <SortersWrapper>
@@ -64,18 +62,24 @@ export default function Sorters() {
               isActive={isActive === idx}
               onClick={() => {
                 setIsActive(idx);
-                dispatch(sortBookings(sortElement.sort_key));
+                setParamsVal(
+                  sortElement.sort_key,
+                  params.get("sortDir") === "desc" ? "asc" : "desc",
+                );
               }}
               onKeyDown={(e: React.KeyboardEvent) => {
                 if (e.key === "Enter") {
                   setIsActive(idx);
-                  dispatch(sortBookings(sortElement.sort_key));
+                  setParamsVal(
+                    sortElement.sort_key,
+                    params.get("sortDir") === "desc" ? "asc" : "desc",
+                  );
                 }
               }}
               tabIndex={0}
             >
-              {previous_sort === sortElement.sort_key ? (
-                sort_order ? (
+              {activeSort === sortElement.sort_key ? (
+                params.get("sortDir") === "desc" ? (
                   <KeyboardArrowDownIcon sx={{ fontSize: "0.7rem" }} />
                 ) : (
                   <KeyboardArrowUpIcon sx={{ fontSize: "0.7rem" }} />

@@ -1,245 +1,213 @@
 import {
   createAsyncThunk,
+  createSelector,
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import type { FilterValue, SortingType } from "../../utils/Types";
+import type {
+  FilterValue,
+  Reject,
+  SortingValue,
+  Status,
+} from "../../utils/Types";
 import z from "zod";
 import type Property from "../../pages/item_pages/Property";
-import { properties_types } from "../../utils/Constants";
+import type { RootState } from "../../app/store";
 
-const bookingsScehma = z.object({
-  id: z.number(),
-  image: z.string().nonempty(),
-  blurred_image: z.string().nonempty(),
-  max_pax: z.number().nonnegative(),
-  lifts_distance: z.number(),
-  price: z.number(),
-  beds: z.number(),
-  size: z.number(),
-  en: z.object({
-    type: z.string(),
-    title: z.string(),
-  }),
-  ja: z.object({
-    type: z.string(),
-    title: z.string(),
-  }),
-  fr: z.object({
-    type: z.string(),
-    title: z.string(),
-  }),
-  ar: z.object({
-    type: z.string(),
-    title: z.string(),
-  }),
+const filtersFunc: Record<
+  FilterValue["filter"],
+  (d: Property, val: string) => boolean
+> = {
+  max_pax: (d: Property, val: string) => d.max_pax >= Number(val),
+  property: (_d: Property, _val: string) => true,
+  type: (_d: Property, _val: string) => true,
+};
+
+const sortersFunc: Record<
+  Exclude<SortingValue["sort"], null>,
+  (d: Property[], dir: SortingValue["dir"]) => Property[]
+> = {
+  bedrooms: (d: Property[], dir: SortingValue["dir"]) => {
+    if (dir === "asc") return d.sort((a, b) => a.beds - b.beds);
+    return d.sort((a, b) => b.beds - a.beds);
+  },
+  discount: (d: Property[], dir: SortingValue["dir"]) => {
+    if (dir === "asc") return d.sort((a, b) => a.price - b.price);
+    return d.sort((a, b) => b.price - a.price);
+  },
+  name: (d: Property[], dir: SortingValue["dir"]) => {
+    if (dir === "asc")
+      return d.sort((a, b) => a.en.title.localeCompare(b.en.title));
+    return d.sort((a, b) => b.en.title.localeCompare(a.en.title));
+  },
+  price: (d: Property[], dir: SortingValue["dir"]) => {
+    if (dir === "asc") return d.sort((a, b) => a.price - b.price);
+    return d.sort((a, b) => b.price - a.price);
+  },
+  size: (d: Property[], dir: SortingValue["dir"]) => {
+    if (dir === "asc") return d.sort((a, b) => a.size - b.size);
+    return d.sort((a, b) => b.size - a.size);
+  },
+};
+
+const bookingsSchema = z.object({
+  properties: z.array(
+    z.object({
+      id: z.number(),
+      image: z.string().nonempty(),
+      blurred_image: z.string().nonempty(),
+      max_pax: z.number().nonnegative(),
+      lifts_distance: z.number(),
+      price: z.number(),
+      beds: z.number(),
+      size: z.number(),
+      en: z.object({
+        type: z.string(),
+        title: z.string(),
+      }),
+      ja: z.object({
+        type: z.string(),
+        title: z.string(),
+      }),
+      fr: z.object({
+        type: z.string(),
+        title: z.string(),
+      }),
+      ar: z.object({
+        type: z.string(),
+        title: z.string(),
+      }),
+    }),
+  ),
 });
 
-export type Property = z.infer<typeof bookingsScehma>;
+export type Property = z.infer<typeof bookingsSchema>["properties"][number];
 
-const DEFAULT_KEY = "default";
-const timeouts: Record<string, ReturnType<typeof setTimeout>> = {};
+export type Filters = Record<FilterValue["filter"], FilterValue["value"]>;
 
-const bookingCache = new Proxy(
-  {},
-  {
-    get(obj: Record<string, Property[]>, key: string) {
-      const modKey = key || DEFAULT_KEY;
-      return obj[modKey];
-    },
-    set(obj: Record<string, Property[]>, key: string, value: Property[]) {
-      const modKey = key || DEFAULT_KEY;
-      obj[modKey] = value;
-      if (timeouts[modKey]) clearTimeout(timeouts[modKey]);
-      timeouts[modKey] = setTimeout(
-        () => {
-          delete obj[modKey];
-          delete timeouts[modKey];
-        },
-        import.meta.env.VITE_CACHE_TTL * 60 * 1000,
-      );
-      return true;
-    },
-    has(obj: Record<string, Property[]>, key: string) {
-      const modKey = key || DEFAULT_KEY;
-      return Object.prototype.hasOwnProperty.call(obj, modKey);
-    },
-  },
-);
+interface BookingState {
+  status: Status;
+  error: Reject | null;
+  bookings: Property[];
+  filters: Filters;
+  sorters: SortingValue;
+}
 
-interface BookingState<T extends object> {
-  loading: boolean;
-  error: string;
-  bookings: T[];
-  displayBookings: T[];
+const initialState: BookingState = {
+  status: "idle",
+  error: null,
+  bookings: [],
   filters: {
-    type: number;
-    max_pax: number;
-    property: number;
-  };
-  sort_order: boolean;
-  previous_sort: SortingType | null;
-  shouldRedirect: boolean;
+    max_pax: "",
+    property: "",
+    type: "",
+  },
+  sorters: {
+    sort: null,
+    dir: "asc",
+  },
+};
+
+interface FetchBookingsProps {
+  checkIn: string;
+  checkOut: string;
 }
 
 export const fetchBookings = createAsyncThunk<
   Property[],
-  Record<string, string | number>,
-  { rejectValue: string }
+  FetchBookingsProps | void,
+  { rejectValue: Reject }
 >("fetch/bookings", async (args, { rejectWithValue, signal }) => {
   try {
-    const fullQueries = new URLSearchParams(
-      Object.entries(args)
-        .filter(([_, v]) => v !== null && v !== undefined)
-        .map(([k, v]) => [k, String(v)]),
-    ).toString();
-    if (bookingCache[fullQueries]) {
-      return bookingCache[fullQueries] as Property[];
-    }
-    const fullURL = `${import.meta.env.VITE_API_URL}/api/property${
-      fullQueries ? "?" + fullQueries : ""
-    }`;
-    const response = await fetch(fullURL, { signal });
+    const { checkIn = "", checkOut = "" } = args || {
+      checkIn: "",
+      checkOut: "",
+    };
+    const url: URL = new URL("/api/property", import.meta.env.VITE_API_URL);
+    url.searchParams.set("checkIn", checkIn);
+    url.searchParams.set("checkOut", checkOut);
+    const options: RequestInit = {
+      method: "GET",
+      signal,
+    };
+    const response = await fetch(url, options);
     if (!response.ok) {
-      throw new Error(response.status.toString());
+      if (response.status >= 500) return rejectWithValue("DOWN");
+      return rejectWithValue("SYSTEM");
     }
-    const raw_data = await response.json();
-    const filtered_data = raw_data.properties.filter(
-      (property: Property) => bookingsScehma.safeParse(property).success,
-    );
-    bookingCache[fullQueries] = filtered_data;
-    return filtered_data as Property[];
+    const data = await response.json();
+    const parsed = bookingsSchema.safeParse(data);
+    if (!parsed.success) return rejectWithValue("SYSTEM");
+    return parsed.data.properties;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      return rejectWithValue("network");
+      return rejectWithValue("DOWN");
     }
-    if (err instanceof Error) {
-      return rejectWithValue(err.message ?? "unknown");
-    }
-    return rejectWithValue("unknown");
+    return rejectWithValue("SYSTEM");
   }
 });
-
-const initialState: BookingState<Property> = {
-  loading: false,
-  error: "",
-  bookings: [],
-  displayBookings: [],
-  filters: {
-    type: 0,
-    max_pax: 0,
-    property: 0,
-  },
-  sort_order: true,
-  previous_sort: null,
-  shouldRedirect: false,
-};
 
 export const bookingSlice = createSlice({
   name: "booking/slice",
   initialState,
   reducers: {
-    setFilter: (state, action: PayloadAction<FilterValue>) => {
-      const { filter, value } = action.payload;
-      if (filter === "max_pax") {
-        state.filters.max_pax = value;
-        state.displayBookings = state.bookings
-          .filter((booking) => booking.max_pax >= value)
-          .filter((booking) =>
-            booking.en.title.includes(
-              properties_types.get(state.filters.property)!,
-            ),
-          );
-      } else if (filter === "type") {
-        state.filters.type = value;
-      } else if (filter === "property") {
-        state.filters.property = value;
-        state.displayBookings = state.bookings
-          .filter((booking) => booking.max_pax >= state.filters.max_pax)
-          .filter((booking) =>
-            booking.en.title.includes(properties_types.get(value)!),
-          );
-      }
+    setFilter: (state, action: PayloadAction<Filters>) => {
+      state.filters = action.payload;
     },
-    sortBookings: (state, action: PayloadAction<SortingType>) => {
-      if (state.previous_sort === action.payload) {
-        state.sort_order = !state.sort_order;
-      } else {
-        state.previous_sort = action.payload;
-        state.sort_order = true;
-      }
-      switch (action.payload) {
-        case "price":
-          state.displayBookings = state.displayBookings.sort(
-            (a: Property, b: Property) => {
-              if (state.sort_order) {
-                return a.price - b.price;
-              } else {
-                return b.price - a.price;
-              }
-            },
-          );
-          break;
-        case "name":
-          state.displayBookings = state.displayBookings.sort(
-            (a: Property, b: Property) => {
-              if (state.sort_order) {
-                return a.en.title.localeCompare(b.en.title);
-              } else {
-                return b.en.title.localeCompare(a.en.title);
-              }
-            },
-          );
-          break;
-        case "size":
-          state.displayBookings = state.displayBookings.sort(
-            (a: Property, b: Property) => {
-              if (state.sort_order) {
-                return a.size - b.size;
-              } else {
-                return b.size - a.size;
-              }
-            },
-          );
-          break;
-        case "bedrooms":
-          state.displayBookings = state.displayBookings.sort(
-            (a: Property, b: Property) => {
-              if (state.sort_order) {
-                return a.beds - b.beds;
-              } else {
-                return b.beds - a.beds;
-              }
-            },
-          );
-          break;
-      }
+    setSorter: (state, action: PayloadAction<SortingValue>) => {
+      const { sort, dir } = action.payload;
+      state.sorters.sort = sort;
+      state.sorters.dir = dir;
     },
   },
   extraReducers: (builder) => {
     builder.addCase(fetchBookings.pending, (state) => {
-      state.loading = true;
-      state.error = "";
-      state.shouldRedirect = false;
+      state.status = "loading";
+      state.error = null;
     });
     builder.addCase(
       fetchBookings.rejected,
-      (state, action: PayloadAction<string | unknown>) => {
-        state.loading = false;
-        state.error = action.payload as string;
-        state.shouldRedirect = action.payload === "400";
+      (state, action: PayloadAction<Reject | undefined>) => {
+        state.status = "failure";
+        state.error = action.payload ?? "SYSTEM";
       },
     );
     builder.addCase(
       fetchBookings.fulfilled,
       (state, action: PayloadAction<Property[]>) => {
-        state.loading = false;
+        state.status = "success";
         state.bookings = action.payload;
-        state.displayBookings = action.payload;
       },
     );
   },
 });
 
+export const selectBookingStatus = (state: RootState) => state.bookings.status;
+
+export const selectBookingError = (state: RootState) => state.bookings.error;
+
+export const selectBookingFilters = (state: RootState) =>
+  state.bookings.filters;
+
+export const selectBookingSorters = (state: RootState) =>
+  state.bookings.sorters;
+
+export const selectBookingData = (state: RootState) => state.bookings.bookings;
+
+export const selectDisplayBookings = createSelector(
+  [selectBookingData, selectBookingFilters, selectBookingSorters],
+  (data, filters, sorters) => {
+    if (!data.length) return [];
+    const { sort, dir } = sorters;
+    const filteredData = data.filter((d) =>
+      Object.entries(filters)
+        .filter(([_k, v]) => Boolean(v))
+        .every(([k, v]) => filtersFunc[k as FilterValue["filter"]](d, v)),
+    );
+    if (!sort) return filteredData;
+    return sortersFunc[sort](filteredData, dir);
+  },
+);
+
 export default bookingSlice.reducer;
-export const { setFilter, sortBookings } = bookingSlice.actions;
+export const { setFilter, setSorter } = bookingSlice.actions;

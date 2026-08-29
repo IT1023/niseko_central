@@ -1,21 +1,15 @@
 import { Box, styled } from "@mui/material";
-import { useDispatch, useSelector } from "react-redux";
-import type { AppDispatch, RootState } from "../../app/store";
-import { Navigate, useLocation } from "react-router-dom";
-import { fetchBookings, setFilter } from "./bookingsSlice";
-import { useEffect } from "react";
+import { useSelector } from "react-redux";
+import {
+  selectBookingError,
+  selectBookingStatus,
+  selectDisplayBookings,
+} from "./bookingsSlice";
 import PropertySkelton from "./PropertySkelton";
 import useSkeltonCount from "./useSkeltonCount";
 import Card from "../../components/Card";
 import { useTranslation } from "react-i18next";
 import Empty from "./Empty";
-
-const propertyTypes: Record<string, number> = {
-  allPropertyTypes: 0,
-  condominiums: 5,
-  "resort-homes": 6,
-  premierCollection: 7,
-};
 
 const BookingsWrapper = styled(Box)({
   width: "100%",
@@ -27,46 +21,22 @@ const BookingsWrapper = styled(Box)({
 });
 
 export default function Bookings() {
-  const location = useLocation().search;
-  const queries = Object.fromEntries(new URLSearchParams(location).entries());
-  const { displayBookings, loading, shouldRedirect } = useSelector(
-    (state: RootState) => state.bookings,
-  );
-  const dispatch = useDispatch<AppDispatch>();
   const { skeltonCount } = useSkeltonCount();
   const { i18n } = useTranslation();
-
-  useEffect(() => {
-    const bookings = dispatch(fetchBookings(queries));
-    const guests =
-      Number(queries["adults"]) +
-        Number(queries["children"]) +
-        Number(queries["infants"]) || 1;
-    dispatch(setFilter({ filter: "max_pax", value: guests || 1 }));
-    const propertyType = queries["propertyType"];
-    if (propertyType && propertyType in propertyTypes) {
-      dispatch(
-        setFilter({ filter: "type", value: propertyTypes[propertyType] }),
-      );
-    }
-    return () => {
-      bookings.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location, dispatch]);
-
-  if (shouldRedirect)
-    return <Navigate to={"/niseko-accommodation"} replace={true} />;
+  const status = useSelector(selectBookingStatus);
+  const error = useSelector(selectBookingError);
+  const displayBookings = useSelector(selectDisplayBookings);
 
   return (
     <BookingsWrapper>
-      {loading &&
+      {status === "loading" &&
         Array.from({ length: skeltonCount }).map((_, idx) => (
           <PropertySkelton key={idx} />
         ))}
-      {!loading && displayBookings.length === 0 && <Empty />}
-      {!loading &&
-        displayBookings.length !== 0 &&
+      {status === "failure" && <div>{error}</div>}
+      {status === "success" && !displayBookings.length && <Empty />}
+      {status === "success" &&
+        !!displayBookings.length &&
         displayBookings.map((displayBookings) => {
           const { id, image, blurred_image, max_pax, lifts_distance } =
             displayBookings;

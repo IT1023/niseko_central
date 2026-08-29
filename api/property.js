@@ -26,8 +26,6 @@ export default async function handler(req, res) {
       ...rest
     } = req.query;
     // Reject Unknown Queries
-    if (Object.keys(rest).length)
-      return res.status(400).json({ message: "Bad Request ..." });
 
     // id validation
     id = Number(id);

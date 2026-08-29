@@ -1,10 +1,9 @@
 import { Box, MenuItem, Select, styled, InputLabel } from "@mui/material";
 import { useTranslation } from "react-i18next";
-import { useDispatch, useSelector } from "react-redux";
-import type { AppDispatch, RootState } from "../../app/store";
-import { setFilter } from "./bookingsSlice";
+import { useSelector } from "react-redux";
+import { selectBookingStatus } from "./bookingsSlice";
 import type { FilterValue } from "../../utils/Types";
-import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 
 interface FilterOption {
   label: string;
@@ -62,16 +61,21 @@ const Default = styled("span")(({ theme }) => ({
 }));
 
 export default function Filters() {
+  const [params, setParams] = useSearchParams();
   const { t } = useTranslation();
-  const { filters, loading } = useSelector(
-    (state: RootState) => state.bookings,
-  );
-  const dispatch = useDispatch<AppDispatch>();
+  const status = useSelector(selectBookingStatus);
+  const isLoading = status === "loading";
 
-  const filterData = useMemo(
-    () => t("accommodation.filters", { returnObjects: true }) as FilterOption[],
-    [t],
-  );
+  const setParamValue = (key: FilterValue["value"], val: unknown) => {
+    setParams((params) => {
+      params.set(key, String(val));
+      return params;
+    });
+  };
+
+  const filterData = t("accommodation.filters", {
+    returnObjects: true,
+  }) as FilterOption[];
 
   return (
     <FiltersContainer>
@@ -82,9 +86,9 @@ export default function Filters() {
             <Input
               size="small"
               name={filter.key}
-              value={filters[filter.key as keyof typeof filters] || ""}
+              value={params.get(filter.key) || ""}
               displayEmpty
-              disabled={loading}
+              disabled={isLoading}
               renderValue={(selected: unknown) => {
                 if (!selected) {
                   return <Default>{filter.placeholder}</Default>;
@@ -94,14 +98,7 @@ export default function Filters() {
                 );
                 return option ? option.value : Number(selected);
               }}
-              onChange={(e) =>
-                dispatch(
-                  setFilter({
-                    filter: filter.key as FilterValue["filter"],
-                    value: Number(e.target.value),
-                  }),
-                )
-              }
+              onChange={(e) => setParamValue(filter.key, e.target.value)}
               MenuProps={{
                 disableScrollLock: true,
               }}

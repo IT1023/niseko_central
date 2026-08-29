@@ -1,5 +1,5 @@
 import type { TLanguage } from "../features/languages/changeLanguage";
-import type { TBackendErrors } from "./Types";
+import type { FilterValue, SortingValue, TBackendErrors } from "./Types";
 
 export const debouncer = <T extends (...args: unknown[]) => void>(
   callback: T,
@@ -194,3 +194,16 @@ export const generate_page_count = (
 
   return pages_count;
 };
+
+export const allowedFilters: FilterValue["filter"][] = [
+  "max_pax",
+  "property",
+  "type",
+];
+export const allowedSorters: SortingValue["sort"][] = [
+  "bedrooms",
+  "discount",
+  "name",
+  "price",
+  "size",
+];
