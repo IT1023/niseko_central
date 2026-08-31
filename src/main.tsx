@@ -17,5 +17,5 @@ createRoot(document.getElementById("root")!).render(
         </ContextProvider>
       </MantineProvider>
     </Provider>
-  </StrictMode>
+  </StrictMode>,
 );
